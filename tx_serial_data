@@ -1,0 +1,147 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 2019/10/31 12:34:04
+// Design Name: 
+// Module Name: serial_tx_8b10b
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module serial_send_8b10b(
+    input               clk,
+    input               rst_n,
+    input    [9:0]      ecd10b_data,
+    input               empty,
+    output              rd_en,
+    output              p2s_data10b,
+    output              flag_output
+    );
+
+parameter   FRAME_HEAD = 24'b11100010010_1111100110101;
+parameter   FREE = 10'b00000;
+parameter   S0 = 2'b00;
+parameter   S1 = 2'b01;
+parameter   S2 = 2'b10;
+
+reg   [1:0]     next_state;
+reg   [1:0]     present_state;
+reg   [9:0]     sda_buf;
+reg   [3:0]     tx_ecdata_cnt;
+reg             p2s_data10b;
+reg             flag_output;   // 1: output Frame_Head and encode data ; 0: output free
+reg             rd_en;
+reg             empty_f1;
+reg             empty_f2;
+reg             h2l_empty_flag;
+reg             l2h_empty_flag;
+reg             flag_tx_frm_head;
+reg             flag_tx_ecd_data;
+reg   [4:0]     cnt_frm_head;
+reg   [3:0]     cnt_free;
+
+always @(posedge clk ) begin
+    if (!rst_n) begin
+        present_state   <= S0;
+        empty_f1        <= 1'b1;
+        empty_f2        <= 1'b1;
+    end
+    else begin
+        present_state   <= next_state;
+        empty_f1        <= empty;
+        empty_f2        <= empty_f1;
+        h2l_empty_flag  <= ! empty_f1 & empty_f2;  //h2l_empty_flag = 1; empty 1-->0
+        l2h_empty_flag  <= empty_f1 & ! empty_f2;  //l2h_empty_flag = 1; empty 0-->1
+    end
+end
+
+always @( * ) begin
+    if (! rst_n) begin
+        
+    end
+    else begin
+        case ( present_state )
+            S0: next_state = (h2l_empty_flag == 1) ? S1:S0;  //Send free data
+            S1: next_state = (flag_tx_frm_head == 1) ? S2:S1; //Send Frame-Head
+            S2: next_state = (l2h_empty_flag == 1) ? S0:S2;  //Send ecd 10bit data
+        endcase
+    end
+end
+
+always @(rst_n or present_state) begin
+    if (!rst_n) begin
+        flag_tx_frm_head        <= 1'b0; // 1: Barker code frame header transmission completed
+        flag_tx_ecd_data        <= 1'b0; // 1: encode data transmission completed
+        cnt_frm_head[4:0]       <= 5'd23;
+        cnt_free[3:0]           <= 4'd9;
+        sda_buf[9:0]            <= 10'b1111111111;
+        flag_output             <= 1'b0;
+        p2s_data10b             <= 1'b0;
+        rd_en                   <= 1'b0;
+        tx_ecdata_cnt[3:0]      <= 4'd9;
+    end
+    else begin
+        case (present_state)
+            S0 : begin
+                flag_output         <= 1'b0;
+                flag_tx_ecd_data    <= 1'b0;
+                if ( cnt_free == 4'd9 ) begin
+                    cnt_free        <= cnt_free - 4'd1;
+                    sda_buf         <= FREE;
+                    p2s_data10b     <= FREE[9];
+                end
+                else if( (cnt_free < 4'd9) & (cnt_free > 4'd0) ) begin
+                    cnt_free        <= cnt_free - 4'd1;
+                    p2s_data10b     <= FREE[cnt_free];
+                end
+                else if(cnt_free == 4'd0) begin
+                    cnt_free        <= 4'd9;
+                    p2s_data10b     <= FREE[cnt_free];
+                end
+            end ;
+            S1 : begin
+                if ( cnt_frm_head > 5'd0 ) begin
+                    flag_output         <= 1'b1;
+                    cnt_frm_head        <= cnt_frm_head -5'd1;
+                    p2s_data10b         <= FRAME_HEAD[cnt_frm_head];
+                end
+                else begin
+                    cnt_frm_head        <= 5'd23;
+                    p2s_data10b         <= FRAME_HEAD[cnt_frm_head];
+                    flag_tx_frm_head    <= 1'b1;
+                    rd_en               <= 1'b1;
+                end
+            end ;
+            S2 : begin
+                if ( tx_ecdata_cnt == 4'd9) begin
+                    tx_ecdata_cnt   <= tx_ecdata_cnt - 4'd1;
+                    p2s_data10b     <= ecd10b_data[tx_ecdata_cnt];
+                    sda_buf         <= ecd10b_data;
+                end
+                else if( (tx_ecdata_cnt < 4'd9) & (tx_ecdata_cnt > 4'd0) ) begin
+                    tx_ecdata_cnt   <= tx_ecdata_cnt - 4'd1;
+                    p2s_data10b     <= sda_buf[tx_ecdata_cnt];
+                end
+                else if ( tx_ecdata_cnt == 4'd0 ) begin
+                    tx_ecdata_cnt   <= 4'd9;
+                    p2s_data10b     <= sda_buf[tx_ecdata_cnt];
+                    rd_en               <= 1'b1;
+                end
+            end ;
+        endcase
+    end
+end
+
+endmodule
