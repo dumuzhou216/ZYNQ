@@ -1,0 +1,41 @@
+
+module SPI_Flash_V01(
+    input           clk,
+    input           rst_n,
+    input           spi_so,
+    output          sck_50MHz,
+    output          spi_cs,
+    output          spi_si
+    );
+
+parameter  READ_ID = 8'h90;
+
+
+reg         spi_cs;
+reg         spi_si;
+
+wire        sys_clk_50MHz;
+wire        sck_50MHz;
+wire        locked;
+
+clk_wiz_0 U_clk_wiz(// Clock in ports
+    // Clock out ports
+    sys_clk_50MHz(sys_clk_50MHz),
+    sck_50MHz(sck_50MHz),
+    // Status and control signals
+    resetn(rst_n),
+    locked(locked),
+    clk_in1(clk)
+ );
+
+always @(posedge sys_clk_50MHz ) begin
+    if (! locked ) begin
+        spi_cs  <= 1'b1;
+        spi_si  <= 1'b1;
+    end
+    else  begin
+        
+    end
+end
+
+endmodule
